@@ -1,4 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { ArrowLeft, MessageCircle, X } from "lucide-react";
+
+/* ---------------- MOCK DATABASE ---------------- */
 
 const mockDatabases = {
   PostgreSQL: {
@@ -34,22 +37,33 @@ function fakeTable(rowCount, nullValues, totalValues, duplicateKeys) {
       { name: "status", type: "VARCHAR(50)", key: "", nullable: false },
     ],
     rowCount,
-    lastUpdated: "2026-02-18",
     nullValues,
     totalValues,
     duplicateKeys,
   };
 }
 
+/* ---------------- COMPONENT ---------------- */
+
 const DatabaseExplorer = ({ organization, defaultDB, onBack }) => {
   const [selectedDB, setSelectedDB] = useState(defaultDB);
   const [selectedTable, setSelectedTable] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [showChatPanel, setShowChatPanel] = useState(false);
+  const [showExportPanel, setShowExportPanel] = useState(false);
 
   const tables = mockDatabases[selectedDB] || {};
   const tableNames = Object.keys(tables);
   const tableData = selectedTable ? tables[selectedTable] : null;
 
+  /* ---------- DEFAULT SELECT FIRST TABLE ---------- */
+  useEffect(() => {
+    if (tableNames.length > 0) {
+      setSelectedTable(tableNames[0]);
+    }
+  }, [selectedDB]);
+
+  /* ---------- QUALITY CALC ---------- */
   const quality = useMemo(() => {
     if (!tableData) return null;
 
@@ -68,91 +82,62 @@ const DatabaseExplorer = ({ organization, defaultDB, onBack }) => {
     };
   }, [tableData]);
 
-  const generateSummary = () => {
-    if (!tableData) return "";
-    return `
-The ${selectedTable} table contains ${tableData.rowCount.toLocaleString()} records.
-It supports operational and analytical reporting within ${organization}.
-Primary key integrity is ${
-      tableData.duplicateKeys === 0 ? "healthy" : "needs review"
-    }.
-Recommended joins: related transactional and reference tables.
-`;
-  };
-
+  /* ---------- AI DOCS ---------- */
   const generateDocs = () => {
     if (!tableData) return "";
     return `
-AI Documentation for ${selectedTable}:
+AI Documentation for ${selectedTable}
 
-• Business Context:
-  Core entity table used in ${organization} workflows.
+Business Context:
+Core operational entity used inside ${organization}
 
-• Usage Recommendations:
-  - Join with related tables for KPI dashboards
-  - Use created_at for growth analysis
-  - Monitor status distribution trends
+Row Count:
+${tableData.rowCount.toLocaleString()} records
 
-• Data Quality Notes:
-  Completeness: ${quality?.completeness}%
-  Null Ratio: ${quality?.nullRatio}%
-  Duplicate Keys: ${quality?.duplicateKeys}
+Data Quality:
+Completeness: ${quality?.completeness}%
+Null Ratio: ${quality?.nullRatio}%
+Duplicate Keys: ${quality?.duplicateKeys}
+
+Recommendations:
+- Join with transactional tables
+- Monitor status distribution
+- Use created_at for growth analysis
 `;
   };
 
+  /* ---------- CHAT ---------- */
   const handleChat = (input) => {
     if (!tableData) return;
 
-    let response = "Please select a table first.";
+    let response = "Ask about rows, duplicates, or null ratio.";
 
     if (input.toLowerCase().includes("row"))
       response = `${tableData.rowCount.toLocaleString()} rows available.`;
 
     if (input.toLowerCase().includes("duplicate"))
-      response = `Duplicate keys: ${tableData.duplicateKeys}`;
+      response = `Duplicate keys: ${quality?.duplicateKeys}`;
 
     if (input.toLowerCase().includes("null"))
       response = `Null ratio: ${quality?.nullRatio}%`;
 
-    setMessages([
-      ...messages,
+    setMessages((prev) => [
+      ...prev,
       { role: "user", text: input },
       { role: "ai", text: response },
     ]);
   };
 
-  const exportJSON = () => {
-    if (!tableData) return;
-    const data = {
-      organization,
-      database: selectedDB,
-      table: selectedTable,
-      structure: tableData.columns,
-      quality,
-      summary: generateSummary(),
-      docs: generateDocs(),
-    };
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json",
-    });
-
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `${selectedTable}.json`;
-    link.click();
-  };
-
   return (
-    <div className="h-screen bg-white text-black flex flex-col">
+    <div className="min-h-screen bg-white flex flex-col">
 
       {/* TOP BAR */}
-      <div className="h-14 border-b flex items-center justify-between px-8">
-        <div className="flex items-center gap-4">
-          <button onClick={onBack} className="border px-3 py-1">
-            Back
+      <div className="h-14 border-b flex items-center justify-between px-4 md:px-8">
+        <div className="flex items-center gap-3">
+          <button onClick={onBack}>
+            <ArrowLeft size={18} />
           </button>
-          <div className="font-semibold">
+          <div className="font-semibold text-sm md:text-base">
             {organization} — {selectedDB}
           </div>
         </div>
@@ -160,76 +145,77 @@ AI Documentation for ${selectedTable}:
         <div className="flex gap-3">
           <select
             value={selectedDB}
-            onChange={(e) => {
-              setSelectedDB(e.target.value);
-              setSelectedTable(null);
-            }}
-            className="border px-3 py-1"
+            onChange={(e) => setSelectedDB(e.target.value)}
+            className="border px-3 py-1 text-sm"
           >
             {Object.keys(mockDatabases).map((db) => (
               <option key={db}>{db}</option>
             ))}
           </select>
 
-          <button onClick={exportJSON} className="bg-black text-white px-4 py-1">
-            Export JSON
+          <button
+            onClick={() => setShowExportPanel(true)}
+            className="bg-black text-white px-4 py-1 text-sm"
+          >
+            Export
           </button>
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      {/* MAIN */}
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
         {/* TABLE LIST */}
-        <div className="w-64 border-r p-6">
-          {tableNames.map((table) => (
-            <div
-              key={table}
-              onClick={() => setSelectedTable(table)}
-              className={`cursor-pointer px-3 py-2 ${
-                selectedTable === table
-                  ? "bg-black text-white"
-                  : ""
-              }`}
-            >
-              {table}
-            </div>
-          ))}
+        <div className="md:w-64 border-r p-4 overflow-x-auto">
+          <div className="flex md:block gap-2">
+            {tableNames.map((table) => (
+              <div
+                key={table}
+                onClick={() => setSelectedTable(table)}
+                className={`cursor-pointer px-3 py-2 whitespace-nowrap ${
+                  selectedTable === table
+                    ? "bg-black text-white"
+                    : ""
+                }`}
+              >
+                {table}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* CENTER CONTENT */}
-        <div className="flex-1 p-8 overflow-auto">
-          {!selectedTable && (
-            <div>Select a table to view analysis.</div>
-          )}
-
+        {/* CENTER */}
+        <div className="flex-1 p-4 md:p-8 overflow-auto">
           {tableData && (
             <>
-              <h2 className="text-xl font-semibold mb-4">
+              <h2 className="text-lg md:text-xl font-semibold mb-4">
                 {selectedTable} Structure
               </h2>
 
-              <table className="w-full border text-sm">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border px-3 py-2">Column</th>
-                    <th className="border px-3 py-2">Type</th>
-                    <th className="border px-3 py-2">Key</th>
-                    <th className="border px-3 py-2">Nullable</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableData.columns.map((col, i) => (
-                    <tr key={i}>
-                      <td className="border px-3 py-2">{col.name}</td>
-                      <td className="border px-3 py-2">{col.type}</td>
-                      <td className="border px-3 py-2">{col.key}</td>
-                      <td className="border px-3 py-2">
-                        {col.nullable ? "Yes" : "No"}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full border text-sm">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border px-3 py-2">Column</th>
+                      <th className="border px-3 py-2">Type</th>
+                      <th className="border px-3 py-2">Key</th>
+                      <th className="border px-3 py-2">Nullable</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {tableData.columns.map((col, i) => (
+                      <tr key={i}>
+                        <td className="border px-3 py-2">{col.name}</td>
+                        <td className="border px-3 py-2">{col.type}</td>
+                        <td className="border px-3 py-2">{col.key}</td>
+                        <td className="border px-3 py-2">
+                          {col.nullable ? "Yes" : "No"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
               <div className="mt-6 border p-4 whitespace-pre-line text-sm">
                 {generateDocs()}
@@ -238,51 +224,127 @@ AI Documentation for ${selectedTable}:
           )}
         </div>
 
-        {/* CHAT */}
-        <div className="w-96 border-l flex flex-col">
-          <div className="p-4 border-b font-semibold">
-            AI Assistant
-          </div>
-
-          <div className="flex-1 p-4 overflow-auto space-y-2 text-sm">
-            {messages.map((m, i) => (
-              <div
-                key={i}
-                className={`p-2 ${
-                  m.role === "user"
-                    ? "bg-gray-200 ml-auto w-fit"
-                    : "bg-black text-white w-fit"
-                }`}
-              >
-                {m.text}
-              </div>
-            ))}
-          </div>
-
-          <div className="p-4 border-t flex gap-2">
-            <input
-              id="chatInput"
-              className="flex-1 border px-3 py-2 text-sm"
-              placeholder="Ask about table..."
-            />
-            <button
-              onClick={() => {
-                const input =
-                  document.getElementById("chatInput").value;
-                handleChat(input);
-                document.getElementById("chatInput").value =
-                  "";
-              }}
-              className="bg-black text-white px-4"
-            >
-              Send
-            </button>
-          </div>
+        {/* DESKTOP AI SIDEBAR */}
+        <div className="hidden md:flex md:w-96 border-l flex-col">
+          <ChatPanel
+            messages={messages}
+            handleChat={handleChat}
+          />
         </div>
-
       </div>
+
+      {/* MOBILE AI BUTTON */}
+      <button
+        onClick={() => setShowChatPanel(true)}
+        className="md:hidden fixed bottom-6 right-6 bg-black text-white p-4 rounded-full shadow-lg"
+      >
+        <MessageCircle size={22} />
+      </button>
+
+      {/* SLIDE CHAT PANEL */}
+      <SlidePanel
+        show={showChatPanel}
+        onClose={() => setShowChatPanel(false)}
+      >
+        <ChatPanel
+          messages={messages}
+          handleChat={handleChat}
+        />
+      </SlidePanel>
+
+      {/* SLIDE EXPORT PANEL */}
+      <SlidePanel
+        show={showExportPanel}
+        onClose={() => setShowExportPanel(false)}
+      >
+        <div className="p-6 space-y-4">
+          <div className="text-lg font-semibold">
+            Export Options
+          </div>
+          <button className="w-full border px-4 py-2">
+            Export as JSON
+          </button>
+          <button className="w-full border px-4 py-2">
+            Export as CSV
+          </button>
+        </div>
+      </SlidePanel>
     </div>
   );
 };
+
+/* ---------------- CHAT PANEL ---------------- */
+
+const ChatPanel = ({ messages, handleChat }) => (
+  <div className="flex flex-col h-full">
+    <div className="p-4 border-b font-semibold">
+      AI Assistant
+    </div>
+
+    <div className="flex-1 p-4 overflow-auto space-y-2 text-sm">
+      {messages.map((m, i) => (
+        <div
+          key={i}
+          className={`p-2 ${
+            m.role === "user"
+              ? "bg-gray-200 ml-auto w-fit"
+              : "bg-black text-white w-fit"
+          }`}
+        >
+          {m.text}
+        </div>
+      ))}
+    </div>
+
+    <div className="p-4 border-t flex gap-2">
+      <input
+        id="chatInput"
+        className="flex-1 border px-3 py-2 text-sm"
+        placeholder="Ask about table..."
+      />
+      <button
+        onClick={() => {
+          const input =
+            document.getElementById("chatInput").value;
+          handleChat(input);
+          document.getElementById("chatInput").value = "";
+        }}
+        className="bg-black text-white px-4"
+      >
+        Send
+      </button>
+    </div>
+  </div>
+);
+
+/* ---------------- SLIDE PANEL ---------------- */
+
+const SlidePanel = ({ show, onClose, children }) => (
+  <div
+    className={`fixed inset-0 z-50 transition ${
+      show ? "pointer-events-auto" : "pointer-events-none"
+    }`}
+  >
+    <div
+      onClick={onClose}
+      className={`absolute inset-0 bg-black/40 transition-opacity ${
+        show ? "opacity-100" : "opacity-0"
+      }`}
+    />
+
+    <div
+      className={`absolute right-0 top-0 h-full bg-white w-full md:w-[400px]
+      transform transition-transform duration-300
+      ${show ? "translate-x-0" : "translate-x-full"}`}
+    >
+      <div className="flex justify-end p-4 border-b">
+        <button onClick={onClose}>
+          <X size={18} />
+        </button>
+      </div>
+      {children}
+    </div>
+  </div>
+);
 
 export default DatabaseExplorer;

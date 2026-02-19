@@ -35,7 +35,7 @@ const Cursor = () => {
     <div
       ref={cursorRef}
       id="cursor"
-      className="w-4 h-4 mix-blend-difference fixed  rounded-full top-0 left-0 z-[1111110] bg-white pointer-events-none"
+      className="w-4 h-4 mix-blend-difference md:fixed hidden  rounded-full top-0 left-0 z-[1111110] bg-white pointer-events-none"
     />
   );
 };
